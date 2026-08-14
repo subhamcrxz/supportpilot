@@ -225,7 +225,7 @@
     ],
     "should_escalate": false,
     "policy_tags": [
-      "secret_protection"
+      "secret_request"
     ]
   },
   {
@@ -466,7 +466,8 @@
     ],
     "should_escalate": true,
     "policy_tags": [
-      "identity_verification"
+      "identity_verification",
+      "verification_bypass"
     ]
   },
   {

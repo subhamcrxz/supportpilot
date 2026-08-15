@@ -81,3 +81,18 @@ def test_empty_provider_response_is_rejected():
 
     with pytest.raises(ProviderValidationError):
         validate_provider_response(context, invalid_response)
+
+def test_refusal_cannot_claim_escalation():
+    context = get_context("CD-0032")
+
+    invalid_response = ProviderResponse(
+        answer=(
+            "I can't provide that information. "
+            "This request requires review by the security team."
+        ),
+        action=Action.REFUSE,
+        confidence=0.99,
+    )
+
+    with pytest.raises(ProviderValidationError):
+        validate_provider_response(context, invalid_response)

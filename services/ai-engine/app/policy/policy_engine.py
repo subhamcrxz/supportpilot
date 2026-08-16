@@ -88,16 +88,17 @@ class PolicyEngine:
 
         # These tags describe constraints on the response, not necessarily
         # a reason to refuse the customer's request.
-        if "secret_protection" in tags:
+        if "secret_request" in tags:
             return PolicyDecision(
-                action=Action.ANSWER,
+                action=Action.REFUSE_AND_GUIDE,
                 requires_human=False,
                 flags=["secret_protection"],
             )
 
-        if "secret_request" in tags:
+        # These tags describe constraints on an otherwise answerable request.
+        if "secret_protection" in tags:
             return PolicyDecision(
-                action=Action.REFUSE_AND_GUIDE,
+                action=Action.ANSWER,
                 requires_human=False,
                 flags=["secret_protection"],
             )

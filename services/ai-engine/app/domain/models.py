@@ -67,3 +67,9 @@ class AnalysisResult(BaseModel):
     requires_human: bool = False
     policy_flags: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=list)
+
+
+class TicketAnalysisRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=500)
+    message: str = Field(min_length=1, max_length=10000)
+    customer: Customer | None = None

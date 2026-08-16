@@ -1,7 +1,20 @@
 from google import genai
+from google.genai import errors
 
 from app.providers.base import AIProvider
 from app.providers.provider_models import ProviderContext, ProviderResponse
+
+
+class GeminiProviderError(RuntimeError):
+    """Base error for Gemini provider failures."""
+
+
+class GeminiRateLimitError(GeminiProviderError):
+    """Raised when Gemini quota/rate limits are exceeded."""
+
+
+class GeminiUnavailableError(GeminiProviderError):
+    """Raised when Gemini is temporarily unavailable."""
 
 
 class GeminiProvider(AIProvider):
@@ -15,20 +28,50 @@ class GeminiProvider(AIProvider):
     def generate(self, context: ProviderContext) -> ProviderResponse:
         prompt = self._build_prompt(context)
 
-        interaction = self.client.interactions.create(
-            model=self.MODEL,
-            input=prompt,
-            store=False,
-            response_format={
-                "type": "text",
-                "mime_type": "application/json",
-                "schema": ProviderResponse.model_json_schema(),
-            },
-        )
+        try:
+            interaction = self.client.interactions.create(
+                model=self.MODEL,
+                input=prompt,
+                store=False,
+                response_format={
+                    "type": "text",
+                    "mime_type": "application/json",
+                    "schema": ProviderResponse.model_json_schema(),
+                },
+            )
+        except errors.RateLimitError as exc:
+            raise GeminiRateLimitError(
+                "Gemini rate limit or quota exceeded."
+            ) from exc
+        except errors.APIError as exc:
+            status_code = getattr(exc, "code", None)
 
-        return ProviderResponse.model_validate_json(
-            interaction.output_text
-        )
+            if status_code is not None and status_code >= 500:
+                raise GeminiUnavailableError(
+                    "Gemini is temporarily unavailable."
+                ) from exc
+
+            raise GeminiProviderError(
+                "Gemini provider request failed."
+            ) from exc
+        except Exception as exc:
+            raise GeminiProviderError(
+                "Unexpected Gemini provider failure."
+            ) from exc
+
+        output = interaction.output_text
+
+        if not output or not output.strip():
+            raise GeminiProviderError(
+                "Gemini returned an empty response."
+            )
+
+        try:
+            return ProviderResponse.model_validate_json(output)
+        except Exception as exc:
+            raise GeminiProviderError(
+                "Gemini returned an invalid response format."
+            ) from exc
 
     def _build_prompt(self, context: ProviderContext) -> str:
         documents = "\n\n".join(
@@ -72,13 +115,11 @@ If the policy action is "refuse":
 - Do not suggest human review.
 - Do not suggest escalation.
 - Do not imply that an exception can be granted.
-- Do not suggest that another team will handle the request.
 
 If the policy action is "refuse_and_guide":
 - Refuse only the prohibited portion.
 - Provide the safe alternative or supported process.
-- Do not suggest human review or escalation unless the policy action
-  explicitly requires escalation.
+- Do not suggest human review or escalation unless explicitly required.
 
 If the policy action is "human_review":
 - Explain that the request requires review by the appropriate CloudDesk team.
@@ -127,9 +168,7 @@ Never say:
 - "I have escalated your request."
 - "I've escalated your request."
 - "Your ticket has been escalated."
-- "Your request has been escalated."
 - "The security team has been notified."
-- "The support team has been notified."
 - "A human has reviewed your request."
 - "Someone will contact you shortly."
 - "A team has been assigned."
@@ -139,12 +178,6 @@ Never say:
 - "Your credential has been rotated."
 
 Instead, describe the required process.
-
-For example:
-
-"This request requires review by the appropriate CloudDesk team."
-
-Do not claim that the review has already occurred.
 
 ============================================================
 RESPONSE QUALITY
@@ -157,9 +190,6 @@ Do not invent facts.
 Use only the supplied CloudDesk documentation for product-specific claims.
 
 Do not promise outcomes that the system cannot guarantee.
-
-Do not claim that a workflow action has occurred unless the supplied
-context explicitly confirms that it occurred.
 
 ============================================================
 TICKET

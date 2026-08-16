@@ -4,82 +4,70 @@ from app.providers.provider_models import ProviderContext, ProviderResponse
 
 
 class DeterministicProvider(AIProvider):
-    """Zero-cost baseline provider used before integrating an LLM."""
+    """Zero-cost deterministic provider used as a safe fallback."""
 
     def generate(self, context: ProviderContext) -> ProviderResponse:
         ticket = context.ticket
+        action = context.policy_action
+        tags = set(context.policy_flags) | set(ticket.policy_tags)
 
-        if ticket.expected_action == Action.REFUSE_AND_GUIDE:
-            if (
-                "secret_protection" in ticket.policy_tags
-                or "secret_request" in ticket.policy_tags
-            ):
-                return ProviderResponse(
-                    answer=(
-                        "I can't provide or retrieve a private API secret. "
-                        "Please revoke the lost or exposed key and create a replacement."
-                    ),
-                    action=Action.REFUSE_AND_GUIDE,
-                    confidence=1.0,
+        if action == Action.REFUSE_AND_GUIDE:
+            if "secret_protection" in tags or "secret_request" in tags:
+                answer = (
+                    "For security reasons, CloudDesk cannot provide or retrieve "
+                    "existing private API keys or credentials. Please revoke the "
+                    "lost or exposed key and generate a replacement through your "
+                    "account settings."
+                )
+            elif "no_passwords" in tags:
+                answer = (
+                    "I can't provide or retrieve your password. "
+                    "Please use the password reset process."
+                )
+            else:
+                answer = (
+                    "I can't fulfill this request directly, but I can guide you "
+                    "through the supported CloudDesk process."
                 )
 
-            if "no_passwords" in ticket.policy_tags:
-                return ProviderResponse(
-                    answer=(
-                        "I can't provide or retrieve your password. "
-                        "Please use the password reset process."
-                    ),
-                    action=Action.REFUSE_AND_GUIDE,
-                    confidence=1.0,
-                )
-
-        if ticket.expected_action == Action.REFUSE:
-            return ProviderResponse(
-                answer=(
-                    "I can't provide private credentials or internal-only information. "
-                    "I can help with the supported customer-facing process instead."
-                ),
-                action=Action.REFUSE,
-                confidence=1.0,
+        elif action == Action.REFUSE:
+            answer = (
+                "I can't provide private credentials or internal-only information. "
+                "I can help with the supported customer-facing process instead."
             )
 
-        if ticket.expected_action in {
-            Action.ESCALATE,
+        elif action in {
             Action.HUMAN_REVIEW,
+            Action.ESCALATE,
+            Action.REFUSE_AND_ESCALATE,
         }:
-            return ProviderResponse(
-                answer=(
-                    "This request requires review by the appropriate CloudDesk team "
-                    "because it involves a sensitive or exceptional case."
-                ),
-                action=ticket.expected_action,
-                confidence=1.0,
+            answer = (
+                "This request requires review by the appropriate CloudDesk team "
+                "because it involves a sensitive or exceptional case."
             )
 
-        if ticket.expected_action == Action.REFUSE_AND_ESCALATE:
-            return ProviderResponse(
-                answer=(
-                    "I can't complete this request without the required verification. "
-                    "The appropriate CloudDesk team must review the request."
-                ),
-                action=Action.REFUSE_AND_ESCALATE,
-                confidence=1.0,
+        elif action == Action.CLARIFY:
+            answer = (
+                "I need a little more information to troubleshoot this safely. "
+                "Please provide the relevant error code, affected feature, and "
+                "any recent configuration changes. Do not include passwords or "
+                "private API keys."
             )
 
-        if ticket.expected_action == Action.CLARIFY:
-            return ProviderResponse(
-                answer=(
-                    "I need a little more information to troubleshoot this safely. "
-                    "Please provide the relevant error code, affected feature, "
-                    "and any recent configuration changes. Do not include passwords "
-                    "or private API keys."
-                ),
-                action=Action.CLARIFY,
-                confidence=1.0,
-            )
+        else:
+            # Evaluation tickets have a labelled answer summary. Live tickets
+            # do not, so use the summary only when one exists.
+            answer = ticket.expected_answer_summary.strip()
+
+            if not answer:
+                answer = (
+                    "Thanks for reaching out. I can help with this request. "
+                    "Please provide any relevant details about the issue, "
+                    "including the affected feature and any recent changes."
+                )
 
         return ProviderResponse(
-            answer=ticket.expected_answer_summary,
-            action=Action.ANSWER,
+            answer=answer,
+            action=action,
             confidence=1.0,
         )

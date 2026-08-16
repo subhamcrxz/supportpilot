@@ -47,3 +47,4 @@ pnpm-debug.log*
 
 # Docker volumes (local)
 infra/docker/data/
+services/ai-engine/.env
